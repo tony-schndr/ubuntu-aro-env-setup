@@ -1,0 +1,108 @@
+---
+- name: Setup Environment
+  hosts: localhost
+  become_user: root
+
+  tasks:
+    - name: setup passwordless sudo access
+      lineinfile:
+        state: present
+        path: /etc/sudoers
+        line: "{{ username }}    ALL=(ALL) NOPASSWD:ALL"
+      become: yes
+
+    - name: Setup git prefered editor
+      git_config:
+        name: core.editor
+        scope: global
+        value: vim
+
+    - name: Create default GOPATH directory
+      file:
+        path: "{{ lookup('env', 'HOME') }}/go"
+        state: directory
+
+    - name: Create .vimrc
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.vimrc"
+        modification_time: preserve
+        access_time: preserve
+        state: touch
+
+    - name: set vim config
+      ansible.builtin.lineinfile:
+        line: "{{ item }}" 
+        path: "{{ lookup('env', 'HOME') }}/.vimrc"
+      with_items:
+        - set tabstop=2
+        - set expandtab
+        - set shiftwidth=2
+
+    - name: Set variables in .bashrc
+      ansible.builtin.lineinfile:
+        line: "{{ item }}" 
+        path: "{{ lookup('env', 'HOME') }}/.bashrc"
+      with_items:
+        - "export GOPATH=$(go env GOPATH)"
+        - "export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin"
+        - "export EDITOR='vim'"
+
+
+    - name: Install required packages for ARO
+      ansible.builtin.apt:
+        name:
+          - python-setuptools
+          - python3.10-venv
+          - podman
+          - podman-docker
+          - libgpgme-dev
+          - libassuan-dev 
+          - openssl
+          - docker
+          - graphviz
+          - gv
+          - make
+          - gcc
+          - jq
+          - curl
+          - gpg
+      become: yes
+
+    - name: create file for microsoft gpg key
+      ansible.builtin.file:
+        path: /etc/apt/trusted.gpg.d/microsoft.asc
+        mode: '0644'
+        state:  touch 
+        modification_time: preserve
+        access_time: preserve
+      become: yes
+          
+    - name: Add microsoft gpg key
+      ansible.builtin.apt_key:
+        url: 'https://packages.microsoft.com/keys/microsoft.asc'
+        keyring: /etc/apt/trusted.gpg.d/microsoft.asc
+        state: present
+      become: yes
+
+    - name: Add microsoft repository
+      ansible.builtin.apt_repository:
+        repo: "{{ item }}" 
+        state: present
+      become: yes
+      loop:
+        - 'deb [arch=amd64] https://packages.microsoft.com/repos/edge stable main'     
+        - 'deb [arch=amd64] https://packages.microsoft.com/ubuntu/22.04/prod jammy main'
+
+    - name: Install Intune
+      ansible.builtin.apt:
+        name:
+          - intune-portal
+      become: yes
+
+    - name: Enforce MSFT managed device password requirements
+      ansible.builtin.lineinfile:
+        path: /etc/pam.d/common-password
+        regexp: '^password	requisite			pam_pwquality.so retry=3'
+        line: 'password	requisite			pam_pwquality.so retry=3 minlen=12 lcredit=1 ucredit=1 dcredit=1 ocredit=1'
+      become: yes
+
